@@ -73,11 +73,21 @@ export function OperationDetailModal({ operation }) {
   const canCancel = !['Done', 'Canceled'].includes(o.status);
 
   function validate() {
-    if (o.type === 'Delivery' && o.lines.some((l) => (state.products.find((p) => p.id === l.productId)?.locations[l.location] || 0) < l.quantity)) {
-      toast('Not enough stock to validate this delivery'); return;
-    }
-    if (o.type === 'Transfer' && o.lines.some((l) => (state.products.find((p) => p.id === l.productId)?.locations[l.from] || 0) < l.quantity)) {
-      toast('Not enough stock to validate this transfer'); return;
+    if (o.type === 'Delivery' || o.type === 'Transfer') {
+      const requestedBySource = new Map();
+      o.lines.forEach((line) => {
+        const source = o.type === 'Transfer' ? line.from : line.location;
+        const key = `${line.productId}:${source}`;
+        requestedBySource.set(key, (requestedBySource.get(key) || 0) + line.quantity);
+      });
+      for (const [key, requested] of requestedBySource) {
+        const [productId, ...sourceParts] = key.split(':');
+        const source = sourceParts.join(':');
+        const product = state.products.find((item) => item.id === productId);
+        if (!product || (product.locations[source] || 0) < requested) {
+          toast(`Not enough stock in ${source} to validate this ${o.type.toLowerCase()}`); return;
+        }
+      }
     }
     dispatch({ type: 'VALIDATE_OPERATION', id: o.id });
     closeModal();
@@ -101,12 +111,21 @@ export function OperationDetailModal({ operation }) {
         <button className="button button-quiet" onClick={() => window.print()}>Print</button>
         {canCancel && <button className="button button-quiet" onClick={cancel}>Cancel</button>}
         {o.status === 'Draft' && <button className="button button-quiet" onClick={() => setStatus('Ready')}>Mark ready</button>}
-        {isDelivery && ['Waiting', 'Ready'].includes(o.status) && <button className="button button-primary" onClick={() => setStatus('Picking')}>Start picking</button>}
-        {isDelivery && o.status === 'Picking' && <button className="button button-primary" onClick={() => setStatus('Packed')}>Mark packed</button>}
-        {canValidate && <button className="button button-primary" onClick={validate}>{isDelivery ? 'Ship order' : 'Validate'}</button>}
+        {isDelivery && ['Draft', 'Waiting', 'Ready'].includes(o.status) && <button className="button button-primary" onClick={() => setStatus('Picking')}>Start Picking</button>}
+        {isDelivery && o.status === 'Picking' && <button className="button button-primary" onClick={() => setStatus('Packed')}>Pack Items</button>}
+        {canValidate && <button className="button button-primary" onClick={validate}>{isDelivery ? 'Validate & Ship' : 'Validate'}</button>}
       </>}
     >
       <div className="operation-detail">
+        {isDelivery && <div className="delivery-progress" aria-label="Delivery fulfillment progress">
+          {['Pick', 'Pack', 'Validate'].map((step, index) => {
+            const currentStep = o.status === 'Packed' || o.status === 'Done' ? 2 : 0;
+            const complete = o.status === 'Done' || index < currentStep;
+            return <div className={`delivery-progress-step ${complete ? 'complete' : index === currentStep ? 'current' : ''}`} key={step}>
+              <span>{complete ? '✓' : index + 1}</span><strong>{step}</strong>
+            </div>;
+          })}
+        </div>}
         <div className="detail-meta"><span>Contact / route</span><strong>{o.partner}</strong></div>
         <div className="detail-meta">
           <span>Status</span>

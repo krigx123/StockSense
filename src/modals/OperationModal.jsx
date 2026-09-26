@@ -15,26 +15,28 @@ const HINT = {
   Adjustment: 'Enter the physical counted quantity. The difference from recorded stock will be logged.',
 };
 
-function emptyLine(state, opType) {
-  const p = state.products[0];
+function emptyLine(state, opType, overrides = {}) {
+  const productId = overrides.productId || state.products[0]?.id || '';
+  const p = state.products.find((product) => product.id === productId);
+  const location = overrides.location || state.warehouses[0];
   return {
-    productId: p?.id || '',
-    quantity: opType === 'Adjustment' ? (p?.locations[state.warehouses[0]] ?? 0) : 1,
-    location: state.warehouses[0],
-    toLocation: state.warehouses[1] || state.warehouses[0],
+    productId,
+    quantity: overrides.quantity ?? (opType === 'Adjustment' ? (p?.locations[location] ?? 0) : 1),
+    location,
+    toLocation: state.warehouses.find((warehouse) => warehouse !== location) || location,
   };
 }
 
-export default function OperationModal() {
+export default function OperationModal({ initialValues = {} }) {
   const { state, dispatch } = useStore();
   const { closeModal } = useModal();
   const toast = useToast();
 
-  const [opType, setOpType] = useState('Receipt');
-  const [partner, setPartner] = useState('');
+  const [opType, setOpType] = useState(initialValues.opType || 'Receipt');
+  const [partner, setPartner] = useState(initialValues.partner || '');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [initialStatus, setInitialStatus] = useState('Draft');
-  const [lines, setLines] = useState([emptyLine(state, 'Receipt')]);
+  const [initialStatus, setInitialStatus] = useState(initialValues.status || 'Draft');
+  const [lines, setLines] = useState(() => [emptyLine(state, initialValues.opType || 'Receipt', initialValues)]);
 
   function onTypeChange(t) {
     setOpType(t);
@@ -78,9 +80,21 @@ export default function OperationModal() {
       if (opType !== 'Adjustment' && n < 1) { toast('Quantity must be at least 1'); return; }
       if (opType === 'Adjustment' && n === (p.locations[line.location] || 0)) { toast(`Counted quantity matches current stock for ${p.name}`); return; }
       if (opType === 'Transfer' && line.location === line.toLocation) { toast('Choose two different locations'); return; }
-      if ((opType === 'Delivery' || opType === 'Transfer') && (p.locations[line.location] || 0) < n) {
-        toast(`Not enough ${p.unit} in ${line.location} for ${p.name}. Available: ${p.locations[line.location] || 0}`);
-        return;
+    }
+    if (opType === 'Delivery' || opType === 'Transfer') {
+      const requestedBySource = new Map();
+      lines.forEach((line) => {
+        const key = `${line.productId}:${line.location}`;
+        requestedBySource.set(key, (requestedBySource.get(key) || 0) + Number(line.quantity));
+      });
+      for (const [key, requested] of requestedBySource) {
+        const [productId, location] = key.split(':');
+        const p = state.products.find((product) => product.id === productId);
+        const available = p?.locations[location] || 0;
+        if (requested > available) {
+          toast(`Not enough ${p?.unit || 'stock'} in ${location} for ${p?.name || 'this product'}. Available: ${available}`);
+          return;
+        }
       }
     }
     if (opType === 'Adjustment' && !partner.trim() && lines.some((l) => {
@@ -125,7 +139,7 @@ export default function OperationModal() {
       <div className="multi-lines-section">
         <div className="multi-lines-header">
           <span className="multi-lines-title">Product lines</span>
-          <button type="button" className="button button-quiet compact-button" onClick={addLine}>＋ Add line</button>
+          <button type="button" className="button button-quiet compact-button" onClick={addLine}>＋ Add Product Line</button>
         </div>
         <div className="multi-lines-col-header">
           <span style={{ flex: 1 }}>Product</span>
@@ -136,9 +150,14 @@ export default function OperationModal() {
         </div>
         {lines.map((line, i) => (
           <div className="multi-line-row" key={i}>
-            <select className="multi-line-field" value={line.productId} onChange={(e) => updateLine(i, 'productId', e.target.value)}>
-              {state.products.map((prod) => <option key={prod.id} value={prod.id}>{prod.name} · {prod.sku}</option>)}
-            </select>
+            <div className="multi-line-product">
+              <select className="multi-line-field" value={line.productId} onChange={(e) => updateLine(i, 'productId', e.target.value)}>
+                {state.products.map((prod) => <option key={prod.id} value={prod.id}>{prod.name} · {prod.sku}</option>)}
+              </select>
+              <small className="multi-line-availability">
+                {opType === 'Receipt' ? 'Stock will increase' : opType === 'Adjustment' ? `On hand: ${state.products.find((prod) => prod.id === line.productId)?.locations[line.location] || 0}` : `Available: ${state.products.find((prod) => prod.id === line.productId)?.locations[line.location] || 0}`}
+              </small>
+            </div>
             <input className="multi-line-qty-input" type="number" min={opType === 'Adjustment' ? 0 : 1} step="1" value={line.quantity}
                    onChange={(e) => updateLine(i, 'quantity', e.target.value)} required />
             <select className="multi-line-field" value={line.location} onChange={(e) => updateLine(i, 'location', e.target.value)}>

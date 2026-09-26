@@ -88,7 +88,7 @@ function reducer(state, action) {
         const ref = `${whCode}/ADJ/${String(seq++).padStart(4, '0')}`;
         ledger = [{
           id: `l${Date.now()}`, type: 'Adjustment', productId: p.id, quantity: diff, location: loc,
-          reference: ref, time: nowISO(), actor: state.user?.name || 'Jamie Davis', note: id ? 'Opening stock update' : 'Initial stock',
+          reference: ref, time: nowISO(), actor: state.user?.name?.trim() || 'Inventory Manager', note: id ? 'Opening stock update' : 'Initial stock',
         }, ...ledger];
         ops = [{
           id: `o${Date.now()}`, type: 'Adjustment', reference: ref, partner: 'Initial inventory',
@@ -134,13 +134,22 @@ function reducer(state, action) {
     case 'VALIDATE_OPERATION': {
       const o = state.ops.find((x) => x.id === action.id);
       if (!o || ['Done', 'Canceled'].includes(o.status)) return state;
+      if (o.type === 'Delivery' ? o.status !== 'Packed' : !['Ready', 'Waiting'].includes(o.status)) return state;
       const productMap = Object.fromEntries(state.products.map((p) => [p.id, { ...p, locations: { ...p.locations } }]));
 
-      if (o.type === 'Delivery') {
-        for (const l of o.lines) if ((productMap[l.productId].locations[l.location] || 0) < l.quantity) return state;
-      }
-      if (o.type === 'Transfer') {
-        for (const l of o.lines) if ((productMap[l.productId].locations[l.from] || 0) < l.quantity) return state;
+      if (o.type === 'Delivery' || o.type === 'Transfer') {
+        const requestedBySource = new Map();
+        for (const line of o.lines) {
+          const source = o.type === 'Transfer' ? line.from : line.location;
+          const key = `${line.productId}:${source}`;
+          requestedBySource.set(key, (requestedBySource.get(key) || 0) + line.quantity);
+        }
+        for (const [key, requested] of requestedBySource) {
+          const [productId, ...sourceParts] = key.split(':');
+          const source = sourceParts.join(':');
+          const product = productMap[productId];
+          if (!product || (product.locations[source] || 0) < requested) return state;
+        }
       }
 
       if (o.type === 'Receipt') o.lines.forEach((l) => { productMap[l.productId].locations[l.location] = (productMap[l.productId].locations[l.location] || 0) + l.quantity; });
@@ -155,7 +164,7 @@ function reducer(state, action) {
       let ops = state.ops.map((x) => (x.id === o.id ? { ...x, status: 'Done' } : x));
       const at = nowISO();
       const newLedger = [];
-      const actorName = state.user?.name || 'Jamie Davis';
+      const actorName = state.user?.name?.trim() || 'Inventory Manager';
       
       o.lines.forEach((l, i) => {
         if (o.type === 'Transfer') {
@@ -175,13 +184,16 @@ function reducer(state, action) {
       // Automated Reorder Purchase Receipts
       let seq = state.seq;
       const reorders = [];
+      const reorderedProductIds = new Set();
       for (const l of o.lines) {
         const p = products.find(x => x.id === l.productId);
+        if (!p || reorderedProductIds.has(p.id)) continue;
         const totalStock = Object.values(p.locations).reduce((a,b) => a+b, 0);
         if (totalStock <= p.reorder && o.type !== 'Receipt') {
           // Check if there is already a pending receipt for this product
           const hasPending = ops.some(op => op.type === 'Receipt' && op.status !== 'Done' && op.status !== 'Canceled' && op.lines.some(line => line.productId === p.id));
           if (!hasPending) {
+            reorderedProductIds.add(p.id);
             const loc = Object.keys(p.locations)[0] || state.warehouses[0];
             const selectedLocation = (state.locations || []).find((x) => x.id === loc || x.name === loc);
             const wh = (state.warehouseRecords || []).find((w) => w.id === selectedLocation?.warehouseId || w.name === loc) || state.warehouseRecords?.[0];
@@ -193,7 +205,7 @@ function reducer(state, action) {
               partner: 'Auto-Reorder Supplier',
               date: new Date().toISOString().slice(0, 10),
               status: 'Draft',
-              lines: [{ productId: p.id, quantity: Math.max(1, p.reorder * 2), location: loc }],
+              lines: [{ productId: p.id, quantity: Math.max(1, (p.reorder * 2) - totalStock), location: loc }],
               warehouseId: wh?.id || null
             });
           }

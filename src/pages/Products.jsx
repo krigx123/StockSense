@@ -19,7 +19,13 @@ export default function Products({ initialWarehouse }) {
   const list = state.products.filter((p) =>
     (!q || `${p.name} ${p.sku} ${p.category}`.toLowerCase().includes(q)) &&
     (filters.category === 'All categories' || p.category === filters.category) &&
-    (filters.warehouse === 'All locations' || (p.locations[filters.warehouse] || 0) > 0));
+    (filters.warehouse === 'All locations' || Object.prototype.hasOwnProperty.call(p.locations, filters.warehouse)));
+
+  function openReorder(p) {
+    const location = filters.warehouse !== 'All locations' ? filters.warehouse : state.warehouses[0];
+    const quantity = Math.max(1, (p.reorder * 2) - total(p));
+    openModal(<OperationModal initialValues={{ opType: 'Receipt', status: 'Draft', productId: p.id, quantity, location }} />);
+  }
 
   function exportProducts() {
     exportCSV('stocksense-products.csv',
@@ -48,14 +54,17 @@ export default function Products({ initialWarehouse }) {
             <tbody>
               {list.length === 0 && <tr><td colSpan={7} className="empty-table">No products match those filters.</td></tr>}
               {list.map((p) => (
-                <tr key={p.id}>
+                <tr key={p.id} className={total(p) <= p.reorder ? 'product-low-stock-row' : ''}>
                   <td><span className="table-product"><span className={`product-thumb ${stockTone(p)}`}>{initials(p.name)}</span><strong>{p.name}</strong></span></td>
                   <td className="sku-cell">{p.sku}</td>
                   <td><span className="category-chip">{p.category}</span></td>
                   <td><strong>{fmt(total(p))}</strong> <span className="muted-cell">{p.unit}</span></td>
                   <td>{fmt(p.reorder)} <span className="muted-cell">{p.unit}</span></td>
                   <td><span className={`stock-status ${stockTone(p)}`}><i></i>{stockStatus(p)}</span></td>
-                  <td><button className="row-menu" aria-label={`Edit ${p.name}`} onClick={() => openModal(<ProductModal product={p} />)}><Icon.dots /></button></td>
+                  <td><div className="product-actions">
+                    {total(p) <= p.reorder && <button className="button button-quiet compact-button reorder-button" onClick={() => openReorder(p)}>Reorder</button>}
+                    <button className="row-menu" aria-label={`Edit ${p.name}`} onClick={() => openModal(<ProductModal product={p} />)}><Icon.dots /></button>
+                  </div></td>
                 </tr>
               ))}
             </tbody>
