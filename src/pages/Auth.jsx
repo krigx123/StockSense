@@ -2,6 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from '../store.jsx';
 import { useToast } from '../Toast.jsx';
 
+const CREDENTIALS_KEY = 'stocksense.demo.credentials.v1';
+
+function readCredentials() {
+  try { return JSON.parse(localStorage.getItem(CREDENTIALS_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+async function hashPassword(value, saltHex) {
+  const salt = saltHex
+    ? Uint8Array.from(saltHex.match(/.{2}/g), (byte) => parseInt(byte, 16))
+    : window.crypto.getRandomValues(new Uint8Array(16));
+  const saltValue = Array.from(salt, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const material = await window.crypto.subtle.importKey('raw', new TextEncoder().encode(value), 'PBKDF2', false, ['deriveBits']);
+  const digest = await window.crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, material, 256);
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${saltValue}:${hash}`;
+}
+
 export default function Auth() {
   const { dispatch } = useStore();
   const toast = useToast();
@@ -30,7 +48,7 @@ export default function Auth() {
     setGeneratedOtp(nextOtp); setOtp(''); setSecondsLeft(60); setMessage(''); setMode('forgot_otp');
     toast(`Demo OTP: ${nextOtp}`);
   }
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault(); setMessage('');
     if (mode === 'forgot_email') { sendOtp(); return; }
     if (mode === 'forgot_otp') {
@@ -40,10 +58,28 @@ export default function Auth() {
     if (mode === 'forgot_new_pass') {
       if (password.length < 6) { setMessage('Password must be at least 6 characters.'); return; }
       if (password !== confirmPassword) { setMessage('Passwords do not match.'); return; }
-      backToLogin(); toast('Password updated successfully. Please sign in.'); return;
+      try {
+        const credentials = readCredentials();
+        credentials[email.trim().toLowerCase()] = await hashPassword(password);
+        localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(credentials));
+        backToLogin(); toast('Password updated successfully. Please sign in.');
+      } catch { setMessage('Password could not be saved in this browser. Please try again.'); }
+      return;
     }
     if (!email.trim() || password.length < 6 || (mode === 'signup' && !name.trim())) { setMessage('Enter the required details. Password must be at least 6 characters.'); return; }
-    dispatch({ type: 'SET_USER', user: { name: mode === 'signup' ? name.trim() : email.split('@')[0], email: email.trim() } });
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const credentials = readCredentials();
+      if (mode === 'login' && credentials[normalizedEmail]) {
+        const [salt] = credentials[normalizedEmail].split(':');
+        if (credentials[normalizedEmail] !== await hashPassword(password, salt)) { setMessage('Incorrect email or password.'); return; }
+      }
+      if (mode === 'signup') {
+        credentials[normalizedEmail] = await hashPassword(password);
+        localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(credentials));
+      }
+      dispatch({ type: 'SET_USER', user: { name: mode === 'signup' ? name.trim() : email.split('@')[0], email: email.trim() } });
+    } catch { setMessage('Authentication could not be completed in this browser. Please try again.'); }
   }
   const resetting = mode.startsWith('forgot_');
   const title = mode === 'login' ? 'Welcome back' : mode === 'signup' ? 'Create your account' : mode === 'forgot_email' ? 'Reset your password' : mode === 'forgot_otp' ? 'Verify your email' : 'Choose a new password';
