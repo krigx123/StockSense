@@ -15,7 +15,9 @@ const MANAGE = [
 ];
 
 export default function Sidebar({ page, setPage, mobileOpen, setMobileOpen }) {
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
+  const userName = state.user?.name?.trim() || 'Inventory Manager';
+  const userInitials = userName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'I';
 
   function go(key) {
     setPage(key);
@@ -59,11 +61,12 @@ export default function Sidebar({ page, setPage, mobileOpen, setMobileOpen }) {
           <p>Your inventory is in good hands.</p>
           <button onClick={() => go('settings')}>Visit help center <span>↗</span></button>
         </div>
-        <button className="profile-button" onClick={() => go('settings')}>
-          <span className="profile-avatar">JD</span>
-          <span className="profile-copy"><strong>Jamie Davis</strong><small>Inventory manager</small></span>
+        <button className="profile-button" onClick={() => go('settings-profile')}>
+          <span className="profile-avatar">{userInitials}</span>
+          <span className="profile-copy"><strong>{userName}</strong><small>{state.user?.role || 'Inventory Manager'}</small></span>
           <svg viewBox="0 0 16 16"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg>
         </button>
+        <button className="sidebar-logout" onClick={() => { dispatch({ type: 'SET_USER', user: null }); setMobileOpen(false); }}>Log out</button>
       </div>
     </aside>
   );

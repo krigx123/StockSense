@@ -1,15 +1,15 @@
 import React from 'react';
 import { useStore } from './store.jsx';
-import { useToast } from './Toast.jsx';
 import { lowCount } from './helpers.js';
 
-const TITLES = { dashboard: 'Overview', products: 'Products', stock: 'Stock', operations: 'Operations', ledger: 'Move history', warehouses: 'Warehouses', locations: 'Locations', settings: 'Settings' };
+const TITLES = { dashboard: 'Overview', products: 'Products', stock: 'Stock', operations: 'Operations', ledger: 'Move history', warehouses: 'Warehouses', locations: 'Locations', settings: 'Settings', 'settings-profile': 'Profile' };
 
-export default function Topbar({ page, onMobileMenu }) {
-  const { state, dispatch } = useStore();
-  const toast = useToast();
+export default function Topbar({ page, setPage, onMobileMenu }) {
+  const { state } = useStore();
   const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   const low = lowCount(state.products);
+  const userName = state.user?.name?.trim() || 'Inventory Manager';
+  const avatar = userName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'I';
 
   return (
     <header className="topbar">
@@ -25,8 +25,8 @@ export default function Topbar({ page, onMobileMenu }) {
           <i></i>
         </button>
         <span className="top-divider"></span>
-        <button className="top-profile" onClick={() => { dispatch({ type: 'SET_USER', user: null }); toast('Signed out'); }}>
-          <span className="profile-avatar">{(state.user?.name || 'Jamie Davis').split(/\s+/).map((s) => s[0]).slice(0,2).join('')}</span>
+        <button className="top-profile" aria-label={`Open profile for ${userName}`} onClick={() => setPage('settings-profile')}>
+          <span className="top-profile-name">{userName}</span><span className="profile-avatar">{avatar}</span>
           <svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg>
         </button>
       </div>

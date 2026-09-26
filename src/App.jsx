@@ -34,13 +34,13 @@ function Shell() {
   else if (page === 'ledger') content = <Ledger />;
   else if (page === 'warehouses') content = <Warehouses />;
   else if (page === 'locations') content = <Locations />;
-  else content = <Settings setPage={go} />;
+  else content = <Settings setPage={go} initialSection={page === 'settings-profile' ? 'profile' : 'general'} />;
 
   return (
     <div className="app-shell">
       <Sidebar page={page} setPage={go} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <main className="main-area">
-        <Topbar page={page} onMobileMenu={() => setMobileOpen((v) => !v)} />
+        <Topbar page={page} setPage={go} onMobileMenu={() => setMobileOpen((v) => !v)} />
         <div className="page-content">{content}</div>
       </main>
     </div>
