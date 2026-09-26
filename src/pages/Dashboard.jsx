@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../store.jsx';
 import { useModal } from '../Modal.jsx';
 import { useToast } from '../Toast.jsx';
@@ -11,8 +11,20 @@ export default function Dashboard({ setPage }) {
   const { state } = useStore();
   const { openModal } = useModal();
   const toast = useToast();
+  const [filters, setFilters] = useState({ location: 'All locations', status: 'All statuses', type: 'All types' });
 
-  const activeOps = state.ops.filter((o) => !['Done', 'Canceled'].includes(o.status));
+  const locationMatches = (record, location) => location === 'All locations' || (record.lines || []).some((line) => [line.location, line.from, line.to].includes(location)) || record.location === location;
+  const opMatches = (op) => (filters.status === 'All statuses' || op.status === filters.status) && (filters.type === 'All types' || op.type === filters.type) && locationMatches(op, filters.location);
+  const activeOps = state.ops.filter((o) => opMatches(o) && (filters.status !== 'All statuses' || !['Done', 'Canceled'].includes(o.status)));
+  const filteredLedger = state.ledger.filter((entry) => {
+    const op = state.ops.find((candidate) => candidate.reference === entry.reference);
+    return (filters.type === 'All types' || baseOpType(entry.type) === filters.type) &&
+      (filters.location === 'All locations' || entry.location === filters.location) &&
+      (filters.status === 'All statuses' || (op && op.status === filters.status));
+  });
+  const displayName = state.user?.name || 'Inventory Manager';
+  const safeName = displayName.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: '2-digit' }).toUpperCase();
   const low = lowProducts(state.products), out = outProducts(state.products);
   const waitingReceipts = state.ops.filter((o) => o.type === 'Receipt' && o.status !== 'Done' && o.status !== 'Canceled').length;
   const waitingDeliveries = state.ops.filter((o) => o.type === 'Delivery' && o.status !== 'Done' && o.status !== 'Canceled').length;
@@ -38,7 +50,7 @@ export default function Dashboard({ setPage }) {
 
   return (
     <>
-      <Heading kicker="SATURDAY, SEPTEMBER 26" title={'Good morning, Jamie <span class="wave">✳</span>'}
+      <Heading kicker={today} title={`Good morning, ${safeName} <span class="wave">✳</span>`}
         sub="Here’s what’s happening across your inventory today."
         actions={<>
           <button className="button button-quiet" onClick={exportLedger}>Export report <Icon.arrow /></button>
@@ -55,6 +67,19 @@ export default function Dashboard({ setPage }) {
           </article>
         ))}
       </section>
+
+      <div className="filter-bar dashboard-filter-bar" aria-label="Filter dashboard activity">
+        <select className="filter-select" aria-label="Warehouse or location" value={filters.location} onChange={(e) => setFilters((current) => ({ ...current, location: e.target.value }))}>
+          <option>All locations</option>{state.warehouses.map((location) => <option key={location}>{location}</option>)}
+        </select>
+        <select className="filter-select" aria-label="Status" value={filters.status} onChange={(e) => setFilters((current) => ({ ...current, status: e.target.value }))}>
+          <option>All statuses</option>{['Draft', 'Waiting', 'Ready', 'Done', 'Canceled'].map((status) => <option key={status}>{status}</option>)}
+        </select>
+        <select className="filter-select" aria-label="Operation type" value={filters.type} onChange={(e) => setFilters((current) => ({ ...current, type: e.target.value }))}>
+          <option>All types</option>{['Receipt', 'Delivery', 'Transfer', 'Adjustment'].map((type) => <option key={type}>{type}</option>)}
+        </select>
+        <button className="filter-reset" onClick={() => setFilters({ location: 'All locations', status: 'All statuses', type: 'All types' })}>Reset</button>
+      </div>
 
       <div className="dashboard-grid">
         <section className="panel attention-panel">
@@ -88,7 +113,7 @@ export default function Dashboard({ setPage }) {
             <button className="text-link" onClick={() => setPage('ledger')}>View history <Icon.arrow /></button>
           </div>
           <div className="activity-list">
-            {state.ledger.slice(0, 5).map((l) => {
+            {filteredLedger.slice(0, 5).map((l) => {
               const p = state.products.find((x) => x.id === l.productId);
               return (
                 <div className="activity-row" key={l.id}>
@@ -101,6 +126,7 @@ export default function Dashboard({ setPage }) {
                 </div>
               );
             })}
+            {filteredLedger.length === 0 && <div className="empty-inline"><strong>No matching activity</strong></div>}
           </div>
           <div className="panel-footer"><span>Updated in real time</span><span className="live-indicator"><i></i> Live</span></div>
         </section>
