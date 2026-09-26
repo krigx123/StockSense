@@ -88,7 +88,7 @@ function reducer(state, action) {
         const ref = `${whCode}/ADJ/${String(seq++).padStart(4, '0')}`;
         ledger = [{
           id: `l${Date.now()}`, type: 'Adjustment', productId: p.id, quantity: diff, location: loc,
-          reference: ref, time: nowISO(), actor: 'Jamie Davis', note: id ? 'Opening stock update' : 'Initial stock',
+          reference: ref, time: nowISO(), actor: state.user?.name || 'Jamie Davis', note: id ? 'Opening stock update' : 'Initial stock',
         }, ...ledger];
         ops = [{
           id: `o${Date.now()}`, type: 'Adjustment', reference: ref, partner: 'Initial inventory',
@@ -100,20 +100,32 @@ function reducer(state, action) {
 
     case 'SAVE_OPERATION':
     case 'CREATE_OPERATION': {
-      const { opType, productId, quantity: n, location: loc, toLocation: to, partner, date } = action;
-      const p = state.products.find((x) => x.id === productId);
-      if (!p) return state;
+      const { opType, productId, quantity: n, location: loc, toLocation: to, partner, date, lines: inputLines } = action;
       let seq = state.seq;
       const id = 'o' + Date.now();
-      const selectedLocation = (state.locations || []).find((x) => x.id === loc || x.name === loc);
-      const wh = (state.warehouseRecords || []).find((w) => w.id === selectedLocation?.warehouseId || w.name === (action.warehouseName || loc)) || state.warehouseRecords?.[0];
+      const firstLoc = inputLines?.[0]?.location || loc;
+      const selectedLocation = (state.locations || []).find((x) => x.id === firstLoc || x.name === firstLoc);
+      const wh = (state.warehouseRecords || []).find((w) => w.id === selectedLocation?.warehouseId || w.name === (action.warehouseName || firstLoc)) || state.warehouseRecords?.[0];
       const prefix = wh?.code || 'WH';
       const typeCode = opType === 'Receipt' ? 'IN' : opType === 'Delivery' ? 'OUT' : opType === 'Transfer' ? 'MOVE' : 'ADJ';
       const ref = `${prefix}/${typeCode}/${String(seq++).padStart(4, '0')}`;
-      const amount = opType === 'Adjustment' ? n - (p.locations[loc] || 0) : n;
-      const lines = [{ productId: p.id, quantity: amount, ...(opType === 'Transfer' ? { from: loc, to } : { location: loc }) }];
+      
+      let lines = [];
+      if (inputLines) {
+        lines = inputLines.map(l => {
+          const p = state.products.find(x => x.id === l.productId);
+          const amount = opType === 'Adjustment' ? l.quantity - (p.locations[l.location] || 0) : l.quantity;
+          return { productId: l.productId, quantity: amount, ...(opType === 'Transfer' ? { from: l.location, to: l.toLocation } : { location: l.location }) };
+        });
+      } else {
+        const p = state.products.find((x) => x.id === productId);
+        if (!p) return state;
+        const amount = opType === 'Adjustment' ? n - (p.locations[loc] || 0) : n;
+        lines = [{ productId: p.id, quantity: amount, ...(opType === 'Transfer' ? { from: loc, to } : { location: loc }) }];
+      }
+
       const resolvedPartner = opType === 'Transfer'
-        ? `${loc} → ${to}`
+        ? (inputLines ? `${inputLines[0].location} → ${inputLines[0].toLocation}` : `${loc} → ${to}`)
         : partner || (opType === 'Receipt' ? 'Stock received' : opType === 'Delivery' ? 'Stock issued' : 'Physical stock count');
       const ops = [{ id, type: opType, reference: ref, partner: resolvedPartner, date, status: action.status || 'Draft', lines, warehouseId: wh?.id || null }, ...state.ops];
       return { ...state, seq, ops };
@@ -140,24 +152,59 @@ function reducer(state, action) {
       if (o.type === 'Adjustment') o.lines.forEach((l) => { productMap[l.productId].locations[l.location] = Math.max(0, (productMap[l.productId].locations[l.location] || 0) + l.quantity); });
 
       const products = state.products.map((p) => productMap[p.id] || p);
-      const ops = state.ops.map((x) => (x.id === o.id ? { ...x, status: 'Done' } : x));
+      let ops = state.ops.map((x) => (x.id === o.id ? { ...x, status: 'Done' } : x));
       const at = nowISO();
       const newLedger = [];
+      const actorName = state.user?.name || 'Jamie Davis';
+      
       o.lines.forEach((l, i) => {
         if (o.type === 'Transfer') {
           newLedger.push(
-            { id: `${o.id}-${i}a`, type: 'Transfer out', productId: l.productId, quantity: -l.quantity, location: l.from, reference: o.reference, time: at, actor: 'Jamie Davis', note: `To ${l.to}` },
-            { id: `${o.id}-${i}b`, type: 'Transfer in', productId: l.productId, quantity: l.quantity, location: l.to, reference: o.reference, time: at, actor: 'Jamie Davis', note: `From ${l.from}` },
+            { id: `${o.id}-${i}a`, type: 'Transfer out', productId: l.productId, quantity: -l.quantity, location: l.from, reference: o.reference, time: at, actor: actorName, note: `To ${l.to}` },
+            { id: `${o.id}-${i}b`, type: 'Transfer in', productId: l.productId, quantity: l.quantity, location: l.to, reference: o.reference, time: at, actor: actorName, note: `From ${l.from}` },
           );
         } else {
           newLedger.push({
             id: `${o.id}-${i}`, type: o.type, productId: l.productId, quantity: o.type === 'Delivery' ? -l.quantity : l.quantity, location: l.location,
-            reference: o.reference, time: at, actor: 'Jamie Davis',
+            reference: o.reference, time: at, actor: actorName,
             note: o.type === 'Receipt' ? 'Goods received' : o.type === 'Delivery' ? 'Customer shipment' : 'Stock count',
           });
         }
       });
-      return { ...state, products, ops, ledger: [...newLedger, ...state.ledger] };
+      
+      // Automated Reorder Purchase Receipts
+      let seq = state.seq;
+      const reorders = [];
+      for (const l of o.lines) {
+        const p = products.find(x => x.id === l.productId);
+        const totalStock = Object.values(p.locations).reduce((a,b) => a+b, 0);
+        if (totalStock <= p.reorder && o.type !== 'Receipt') {
+          // Check if there is already a pending receipt for this product
+          const hasPending = ops.some(op => op.type === 'Receipt' && op.status !== 'Done' && op.status !== 'Canceled' && op.lines.some(line => line.productId === p.id));
+          if (!hasPending) {
+            const loc = Object.keys(p.locations)[0] || state.warehouses[0];
+            const selectedLocation = (state.locations || []).find((x) => x.id === loc || x.name === loc);
+            const wh = (state.warehouseRecords || []).find((w) => w.id === selectedLocation?.warehouseId || w.name === loc) || state.warehouseRecords?.[0];
+            const prefix = wh?.code || 'WH';
+            reorders.push({
+              id: 'o' + Date.now() + Math.random(),
+              type: 'Receipt',
+              reference: `${prefix}/IN/${String(seq++).padStart(4, '0')}`,
+              partner: 'Auto-Reorder Supplier',
+              date: new Date().toISOString().slice(0, 10),
+              status: 'Draft',
+              lines: [{ productId: p.id, quantity: Math.max(1, p.reorder * 2), location: loc }],
+              warehouseId: wh?.id || null
+            });
+          }
+        }
+      }
+      
+      if (reorders.length > 0) {
+        ops = [...reorders, ...ops];
+      }
+
+      return { ...state, products, ops, seq, ledger: [...newLedger, ...state.ledger] };
     }
 
     case 'CANCEL_OPERATION': {

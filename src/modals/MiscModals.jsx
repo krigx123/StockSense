@@ -68,7 +68,8 @@ export function OperationDetailModal({ operation }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const o = state.ops.find((x) => x.id === operation.id) || operation;
-  const canValidate = ['Ready', 'Waiting'].includes(o.status);
+  const isDelivery = o.type === 'Delivery';
+  const canValidate = !isDelivery ? ['Ready', 'Waiting'].includes(o.status) : o.status === 'Packed';
   const canCancel = !['Done', 'Canceled'].includes(o.status);
 
   function validate() {
@@ -80,11 +81,11 @@ export function OperationDetailModal({ operation }) {
     }
     dispatch({ type: 'VALIDATE_OPERATION', id: o.id });
     closeModal();
-    toast(`${o.reference} validated`);
+    toast(`${o.reference} ${isDelivery ? 'shipped' : 'validated'}`);
   }
-  function setReady() {
-    dispatch({ type: 'SET_OPERATION_STATUS', id: o.id, status: 'Ready' });
-    closeModal(); toast(`${o.reference} is ready`);
+  function setStatus(status) {
+    dispatch({ type: 'SET_OPERATION_STATUS', id: o.id, status });
+    closeModal(); toast(`${o.reference} is ${status.toLowerCase()}`);
   }
   function cancel() {
     dispatch({ type: 'CANCEL_OPERATION', id: o.id });
@@ -99,8 +100,10 @@ export function OperationDetailModal({ operation }) {
       footer={<>
         <button className="button button-quiet" onClick={() => window.print()}>Print</button>
         {canCancel && <button className="button button-quiet" onClick={cancel}>Cancel</button>}
-        {o.status === 'Draft' && <button className="button button-quiet" onClick={setReady}>Mark ready</button>}
-        {canValidate && <button className="button button-primary" onClick={validate}>Validate</button>}
+        {o.status === 'Draft' && <button className="button button-quiet" onClick={() => setStatus('Ready')}>Mark ready</button>}
+        {isDelivery && ['Waiting', 'Ready'].includes(o.status) && <button className="button button-primary" onClick={() => setStatus('Picking')}>Start picking</button>}
+        {isDelivery && o.status === 'Picking' && <button className="button button-primary" onClick={() => setStatus('Packed')}>Mark packed</button>}
+        {canValidate && <button className="button button-primary" onClick={validate}>{isDelivery ? 'Ship order' : 'Validate'}</button>}
       </>}
     >
       <div className="operation-detail">

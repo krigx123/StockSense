@@ -25,7 +25,7 @@ export default function FilterBar({ filters, setFilters, showStatus, showType })
       {showStatus && (
         <select className="filter-select" value={filters.status} onChange={set('status')}>
           <option>All statuses</option>
-          {['Draft', 'Waiting', 'Ready', 'Done', 'Canceled'].map((s) => <option key={s}>{s}</option>)}
+          {['Draft', 'Waiting', 'Ready', 'Picking', 'Packed', 'Done', 'Canceled'].map((s) => <option key={s}>{s}</option>)}
         </select>
       )}
       {showType && (

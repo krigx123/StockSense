@@ -49,7 +49,7 @@ export default function Ledger() {
           <div><span>Locations tracked</span><strong>{state.warehouses.length}</strong></div>
         </div>
         <FilterBar filters={filters} setFilters={setFilters} showStatus showType />
-        {view === 'kanban' ? <div className="kanban-board">{['Draft','Waiting','Ready','Done','Canceled'].map((status) => <section className="kanban-column" key={status}><header><strong>{status}</strong><span>{kanbanRows.filter((o) => o.status === status).length}</span></header>{kanbanRows.filter((o) => o.status === status).map((o) => <button className="kanban-card" key={o.id} onClick={() => openModal(<OperationDetailModal operation={o} />)}><strong>{o.reference}</strong><span>{o.type} · {o.partner}</span><small>{o.date}</small></button>)}</section>)}</div> : <div className="table-scroll">
+        {view === 'kanban' ? <div className="kanban-board">{['Draft','Waiting','Ready','Picking','Packed','Done','Canceled'].map((status) => <section className="kanban-column" key={status}><header><strong>{status}</strong><span>{kanbanRows.filter((o) => o.status === status).length}</span></header>{kanbanRows.filter((o) => o.status === status).map((o) => <button className="kanban-card" key={o.id} onClick={() => openModal(<OperationDetailModal operation={o} />)}><strong>{o.reference}</strong><span>{o.type} · {o.partner}</span><small>{o.date}</small></button>)}</section>)}</div> : <div className="table-scroll">
           <table>
             <thead><tr><th>MOVEMENT</th><th>PRODUCT</th><th>LOCATION</th><th>REFERENCE</th><th>QUANTITY</th><th>WHEN</th><th>BY</th></tr></thead>
             <tbody>
