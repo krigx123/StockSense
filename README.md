@@ -1,8 +1,8 @@
 # StockSense — React + Vite
 
-A React + Vite port of the original vanilla-JS StockSense prototype. Same features, same data model,
-same visual design (styles.css is unchanged) — rebuilt as componentized React with a `useReducer` store
-instead of hand-rolled DOM re-rendering.
+A React + Vite inventory prototype based on the StockSense wireframes. It uses componentized React with
+a `useReducer` store, local browser persistence, document workflow states, and separate warehouse and
+location records.
 
 ## Run it
 
@@ -36,3 +36,12 @@ npm run preview   # preview the production build locally
 Browser storage is device-local, not shared or backed up. This remains a client-side MVP demonstration,
 not a secure multi-user system — see the parent project's implementation-plan notes for the production
 roadmap (auth, backend, document workflow states, hardening).
+
+## Wireframe additions
+
+- Login and signup screens provide a local demo session; they do not authenticate against a server.
+- Receipt, delivery, transfer, and adjustment documents can be created as Draft, Waiting, or Ready. Drafts do not change on-hand stock; detail view supports status progression, validation, cancel, and print.
+- Operations and Move history include list and Kanban views.
+- Warehouses (name, short code, address) and Locations (name, short code, parent warehouse) are separate records.
+- Stock lists per-unit cost, on-hand, reserved, and free-to-use quantities. Open deliveries reduce free-to-use without changing on-hand until validation.
+- New references use `<WAREHOUSE_CODE>/<OPERATION>/<ID>`.

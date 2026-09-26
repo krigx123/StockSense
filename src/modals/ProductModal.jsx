@@ -16,6 +16,7 @@ export default function ProductModal({ product }) {
   const [sku, setSku] = useState(product?.sku || '');
   const [category, setCategory] = useState(product?.category || '');
   const [unit, setUnit] = useState(product?.unit || 'pcs');
+  const [cost, setCost] = useState(product?.cost ?? 0);
   const [reorder, setReorder] = useState(product?.reorder ?? 10);
   const [initial, setInitial] = useState(product ? (product.locations[firstWarehouse] || 0) : 0);
 
@@ -31,9 +32,11 @@ export default function ProductModal({ product }) {
     if (!Number.isInteger(reorderNum) || reorderNum < 0 || !Number.isInteger(initialNum) || initialNum < 0) {
       toast('Stock and reorder point must be whole numbers of zero or more'); return;
     }
+    const costNum = Number(cost);
+    if (!Number.isFinite(costNum) || costNum < 0) { toast('Enter a valid per-unit cost'); return; }
     dispatch({
       type: 'SAVE_PRODUCT', id: product?.id, name: cleanName, sku: cleanSku, category: cleanCategory,
-      unit, reorder: reorderNum, initial: initialNum,
+      unit, cost: costNum, reorder: reorderNum, initial: initialNum,
     });
     closeModal();
     toast(isEdit ? 'Product updated' : 'Product added');
@@ -68,7 +71,8 @@ export default function ProductModal({ product }) {
           </select>
         </label>
       </div>
-      <div className="form-row">
+      <div className="form-row cost-row">
+        <label className="form-field"><span>Per-unit cost (₹)</span><input type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} /></label>
         <label className="form-field">
           <span>Reorder point</span>
           <input type="number" min="0" step="1" value={reorder} onChange={(e) => setReorder(e.target.value)} />

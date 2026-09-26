@@ -3,10 +3,10 @@ import { useStore } from './store.jsx';
 import { useToast } from './Toast.jsx';
 import { lowCount } from './helpers.js';
 
-const TITLES = { dashboard: 'Overview', products: 'Products', operations: 'Operations', ledger: 'Movement history', warehouses: 'Warehouses', settings: 'Settings' };
+const TITLES = { dashboard: 'Overview', products: 'Products', stock: 'Stock', operations: 'Operations', ledger: 'Move history', warehouses: 'Warehouses', locations: 'Locations', settings: 'Settings' };
 
 export default function Topbar({ page, onMobileMenu }) {
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
   const toast = useToast();
   const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   const low = lowCount(state.products);
@@ -25,8 +25,8 @@ export default function Topbar({ page, onMobileMenu }) {
           <i></i>
         </button>
         <span className="top-divider"></span>
-        <button className="top-profile" onClick={() => toast('Signed in as Jamie Davis · Inventory manager')}>
-          <span className="profile-avatar">JD</span>
+        <button className="top-profile" onClick={() => { dispatch({ type: 'SET_USER', user: null }); toast('Signed out'); }}>
+          <span className="profile-avatar">{(state.user?.name || 'Jamie Davis').split(/\s+/).map((s) => s[0]).slice(0,2).join('')}</span>
           <svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg>
         </button>
       </div>

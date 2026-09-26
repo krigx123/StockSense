@@ -10,26 +10,48 @@ export function WarehouseModal() {
   const { closeModal } = useModal();
   const toast = useToast();
   const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [address, setAddress] = useState('');
 
   function save() {
     const clean = name.trim();
-    if (!clean) { toast('Enter a location name'); return; }
-    if (state.warehouses.some((w) => w.toLowerCase() === clean.toLowerCase())) { toast('That location already exists'); return; }
-    dispatch({ type: 'ADD_WAREHOUSE', name: clean });
+    const cleanCode = code.trim().toUpperCase();
+    if (!clean || !cleanCode) { toast('Enter a warehouse name and short code'); return; }
+    if (state.warehouseRecords.some((w) => w.name.toLowerCase() === clean.toLowerCase() || w.code.toLowerCase() === cleanCode.toLowerCase())) { toast('Warehouse name and short code must be unique'); return; }
+    dispatch({ type: 'ADD_WAREHOUSE', id: `w${Date.now()}`, name: clean, code: cleanCode, address: address.trim() });
     closeModal();
-    toast('Location added');
+    toast('Warehouse added');
   }
 
   return (
-    <ModalFrame title="Add a location" sub="Add a warehouse or storage area to your network."
-      footer={<button className="button button-primary" onClick={save}>Add location</button>}>
+    <ModalFrame title="Add a warehouse" sub="Create a warehouse record with its own address and short code."
+      footer={<button className="button button-primary" onClick={save}>Add warehouse</button>}>
       <label className="form-field">
-        <span>Location name</span>
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Eastside Storage" required />
+        <span>Warehouse name</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Eastside Warehouse" required />
       </label>
-      <div className="form-hint">Each location gets its own stock balance. Move stock between locations with a transfer operation.</div>
+      <div className="form-row"><label className="form-field"><span>Short code</span><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="EAST" maxLength={8} required /></label><label className="form-field"><span>Address</span><input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city" /></label></div>
     </ModalFrame>
   );
+}
+
+export function LocationModal() {
+  const { state, dispatch } = useStore();
+  const { closeModal } = useModal();
+  const toast = useToast();
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [warehouseId, setWarehouseId] = useState(state.warehouseRecords?.[0]?.id || '');
+  function save() {
+    const clean = name.trim(), short = code.trim().toUpperCase();
+    if (!clean || !short || !warehouseId) { toast('Enter a location name, code, and warehouse'); return; }
+    if (state.locations.some((l) => l.name.toLowerCase() === clean.toLowerCase() || l.code.toLowerCase() === short.toLowerCase())) { toast('Location name and short code must be unique'); return; }
+    dispatch({ type: 'ADD_LOCATION', location: { id: clean, name: clean, code: short, warehouseId } });
+    closeModal(); toast('Location added');
+  }
+  return <ModalFrame title="Add a location" sub="Add a stock-holding area inside a warehouse." footer={<button className="button button-primary" onClick={save}>Add location</button>}>
+    <label className="form-field"><span>Location name</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Packing area" /></label>
+    <div className="form-row"><label className="form-field"><span>Short code</span><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="PACK" maxLength={8} /></label><label className="form-field"><span>Warehouse</span><select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>{state.warehouseRecords.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label></div>
+  </ModalFrame>;
 }
 
 export function ConfirmModal({ title, description, buttonLabel = 'Confirm', onConfirm }) {
@@ -46,15 +68,23 @@ export function OperationDetailModal({ operation }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const o = state.ops.find((x) => x.id === operation.id) || operation;
-  const canValidate = ['Ready', 'Waiting', 'Draft'].includes(o.status);
+  const canValidate = ['Ready', 'Waiting'].includes(o.status);
+  const canCancel = !['Done', 'Canceled'].includes(o.status);
 
   function validate() {
     if (o.type === 'Delivery' && o.lines.some((l) => (state.products.find((p) => p.id === l.productId)?.locations[l.location] || 0) < l.quantity)) {
       toast('Not enough stock to validate this delivery'); return;
     }
+    if (o.type === 'Transfer' && o.lines.some((l) => (state.products.find((p) => p.id === l.productId)?.locations[l.from] || 0) < l.quantity)) {
+      toast('Not enough stock to validate this transfer'); return;
+    }
     dispatch({ type: 'VALIDATE_OPERATION', id: o.id });
     closeModal();
     toast(`${o.reference} validated`);
+  }
+  function setReady() {
+    dispatch({ type: 'SET_OPERATION_STATUS', id: o.id, status: 'Ready' });
+    closeModal(); toast(`${o.reference} is ready`);
   }
   function cancel() {
     dispatch({ type: 'CANCEL_OPERATION', id: o.id });
@@ -66,12 +96,12 @@ export function OperationDetailModal({ operation }) {
     <ModalFrame
       title={o.reference}
       sub={`${o.type} · ${dateLabel(o.date)}`}
-      footer={canValidate
-        ? <>
-            <button className="button button-quiet" onClick={cancel}>Cancel operation</button>
-            <button className="button button-primary" onClick={validate}>Validate &amp; update stock</button>
-          </>
-        : null}
+      footer={<>
+        <button className="button button-quiet" onClick={() => window.print()}>Print</button>
+        {canCancel && <button className="button button-quiet" onClick={cancel}>Cancel</button>}
+        {o.status === 'Draft' && <button className="button button-quiet" onClick={setReady}>Mark ready</button>}
+        {canValidate && <button className="button button-primary" onClick={validate}>Validate</button>}
+      </>}
     >
       <div className="operation-detail">
         <div className="detail-meta"><span>Contact / route</span><strong>{o.partner}</strong></div>

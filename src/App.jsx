@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StoreProvider } from './store.jsx';
+import { StoreProvider, useStore } from './store.jsx';
 import { ToastProvider } from './Toast.jsx';
 import { ModalProvider } from './Modal.jsx';
 import Sidebar from './Sidebar.jsx';
@@ -10,23 +10,30 @@ import Operations from './pages/Operations.jsx';
 import Ledger from './pages/Ledger.jsx';
 import Warehouses from './pages/Warehouses.jsx';
 import Settings from './pages/Settings.jsx';
+import Stock from './pages/Stock.jsx';
+import Locations from './pages/Locations.jsx';
+import Auth from './pages/Auth.jsx';
 
 function Shell() {
   const [page, setPage] = useState('dashboard');
   const [mobileOpen, setMobileOpen] = useState(false);
   // Carries a location filter from Warehouses -> Products, mirroring the vanilla app's filters.warehouse behavior.
   const [productWarehouseFilter, setProductWarehouseFilter] = useState(null);
+  const { state } = useStore();
 
   function go(p) {
     setPage(p);
   }
 
+  if (!state.user) return <Auth />;
   let content;
   if (page === 'dashboard') content = <Dashboard setPage={go} />;
   else if (page === 'products') content = <Products key={productWarehouseFilter || 'all'} initialWarehouse={productWarehouseFilter} />;
+  else if (page === 'stock') content = <Stock />;
   else if (page === 'operations') content = <Operations />;
   else if (page === 'ledger') content = <Ledger />;
-  else if (page === 'warehouses') content = <Warehouses setPage={go} setProductWarehouseFilter={setProductWarehouseFilter} />;
+  else if (page === 'warehouses') content = <Warehouses />;
+  else if (page === 'locations') content = <Locations />;
   else content = <Settings setPage={go} />;
 
   return (

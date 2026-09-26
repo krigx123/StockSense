@@ -9,7 +9,7 @@ const PARTNER_PLACEHOLDER = {
   Transfer: 'e.g. Replenish production floor', Adjustment: 'e.g. Damaged during handling',
 };
 const HINT = {
-  Receipt: 'Validating this receipt immediately adds units and records the movement.',
+  Receipt: 'Save a draft or mark ready. Stock changes only when the receipt is validated.',
   Delivery: 'Validation deducts stock from the selected location. Insufficient stock is blocked.',
   Transfer: 'A transfer reduces source stock and increases destination stock. Total stock stays the same.',
   Adjustment: 'Enter the physical counted quantity. The difference from recorded stock will be logged.',
@@ -26,6 +26,7 @@ export default function OperationModal() {
   const [toLocation, setToLocation] = useState(state.warehouses[1] || state.warehouses[0]);
   const [partner, setPartner] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [initialStatus, setInitialStatus] = useState('Draft');
 
   const p = state.products.find((x) => x.id === productId);
   const currentAt = (loc) => p?.locations[loc] ?? 0;
@@ -58,16 +59,16 @@ export default function OperationModal() {
     }
     if (opType === 'Adjustment' && n > (p.locations[location] || 0) && !partner.trim()) { toast('Add a reason for a positive adjustment'); return; }
 
-    dispatch({ type: 'SAVE_OPERATION', opType, productId, quantity: n, location, toLocation, partner: partner.trim(), date });
+    dispatch({ type: 'CREATE_OPERATION', opType, productId, quantity: n, location, toLocation, partner: partner.trim(), date, status: initialStatus });
     closeModal();
-    toast(`${opType} validated`);
+    toast(`${opType} saved as ${initialStatus.toLowerCase()}`);
   }
 
   return (
     <ModalFrame
       title="New operation"
       sub="Record a stock movement in your workspace."
-      footer={<button className="button button-primary" onClick={save}>Validate operation</button>}
+      footer={<button className="button button-primary" onClick={save}>{initialStatus === 'Draft' ? 'Save draft' : `Create ${initialStatus.toLowerCase()}`}</button>}
     >
       <label className="form-field">
         <span>Operation type</span>
@@ -75,6 +76,7 @@ export default function OperationModal() {
           <option>Receipt</option><option>Delivery</option><option>Transfer</option><option>Adjustment</option>
         </select>
       </label>
+      <label className="form-field"><span>Document status</span><select value={initialStatus} onChange={(e) => setInitialStatus(e.target.value)}><option>Draft</option><option>Waiting</option><option>Ready</option></select></label>
       <label className="form-field">
         <span>{PARTNER_LABEL[opType]}</span>
         <input value={partner} onChange={(e) => setPartner(e.target.value)} placeholder={PARTNER_PLACEHOLDER[opType]} />

@@ -3,46 +3,13 @@ import { useStore } from '../store.jsx';
 import { useModal } from '../Modal.jsx';
 import { Icon } from '../icons.jsx';
 import { Heading } from '../Shared.jsx';
-import { fmt } from '../helpers.js';
-import { WarehouseModal, WarehouseMenuModal } from '../modals/MiscModals.jsx';
+import { WarehouseModal } from '../modals/MiscModals.jsx';
 
-export default function Warehouses({ setPage, setProductWarehouseFilter }) {
+export default function Warehouses() {
   const { state } = useStore();
   const { openModal } = useModal();
-
-  function openStock(name) {
-    setProductWarehouseFilter(name);
-    setPage('products');
-  }
-
-  return (
-    <>
-      <Heading kicker="YOUR NETWORK" title="Warehouses" sub="Manage locations and see how inventory is distributed."
-        actions={<button className="button button-primary" onClick={() => openModal(<WarehouseModal />)}><Icon.plus /> Add location</button>} />
-      <div className="warehouse-grid">
-        {state.warehouses.map((w, i) => {
-          const prods = state.products.filter((p) => (p.locations[w] || 0) > 0);
-          const units = prods.reduce((s, p) => s + p.locations[w], 0);
-          return (
-            <article className="panel warehouse-card" key={w}>
-              <div className="warehouse-card-top">
-                <span className={`warehouse-hero-icon mark-${i % 3}`}>{i === 0 ? '⌂' : '▦'}</span>
-                <button className="row-menu" onClick={() => openModal(<WarehouseMenuModal name={w} onOpenStock={openStock} />)}><Icon.dots /></button>
-              </div>
-              <h2>{w}</h2>
-              <p>{prods.length} products stocked</p>
-              <div className="warehouse-units"><strong>{fmt(units)}</strong><span>total units</span></div>
-              <div className="warehouse-bottom">
-                <span><i></i> Active</span>
-                <button className="text-link" onClick={() => openStock(w)}>View stock <Icon.arrow /></button>
-              </div>
-            </article>
-          );
-        })}
-        <button className="add-warehouse-card" onClick={() => openModal(<WarehouseModal />)}>
-          <span><Icon.plus /></span><strong>Add a location</strong><small>Expand your inventory network</small>
-        </button>
-      </div>
-    </>
-  );
+  const warehouses = state.warehouseRecords || [];
+  return <><Heading kicker="YOUR NETWORK" title="Warehouses" sub="Manage warehouse names, short codes, and addresses." actions={<button className="button button-primary" onClick={() => openModal(<WarehouseModal />)}><Icon.plus /> Add warehouse</button>} />
+    <section className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>WAREHOUSE</th><th>SHORT CODE</th><th>ADDRESS</th><th>LOCATIONS</th></tr></thead><tbody>{warehouses.map((w) => <tr key={w.id}><td><strong>{w.name}</strong></td><td className="sku-cell">{w.code}</td><td>{w.address || '—'}</td><td>{(state.locations || []).filter((l) => l.warehouseId === w.id).length}</td></tr>)}</tbody></table></div>{warehouses.length === 0 && <div className="empty-table">No warehouses yet.</div>}</section>
+  </>;
 }

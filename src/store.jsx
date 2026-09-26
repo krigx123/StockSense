@@ -6,7 +6,20 @@ const KEY = 'stocksense.mvp.v1';
 function loadInitial() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      const base = seed();
+      const oldWarehouses = Array.isArray(saved.warehouses) ? saved.warehouses : base.warehouses;
+      const warehouseRecords = (saved.warehouseRecords || []).map((w) => typeof w === 'string' ? { id: w, name: w, code: w.slice(0, 5).toUpperCase(), address: '' } : w);
+      const known = new Set(warehouseRecords.map((w) => w.name));
+      oldWarehouses.forEach((w) => { if (typeof w === 'string' && !known.has(w)) warehouseRecords.push({ id: w, name: w, code: w.replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase(), address: '' }); });
+      const locations = saved.locations || oldWarehouses.map((w, i) => ({ id: w, name: w, code: `LOC${i + 1}`, warehouseId: warehouseRecords.find((x) => x.name === w)?.id || w }));
+      const migrateRef = (record) => ({ ...record, reference: typeof record.reference === 'string' && record.reference.startsWith('WH/') ? `${warehouseRecords[0]?.code || 'WH'}/${record.reference.slice(3)}` : record.reference });
+      return { ...base, ...saved, seq: saved.seq || base.seq, warehouses: oldWarehouses.filter((w) => typeof w === 'string'), warehouseRecords, locations,
+        ops: (saved.ops || base.ops).map(migrateRef), ledger: (saved.ledger || base.ledger).map(migrateRef),
+        products: (saved.products || base.products).map((p) => ({ ...p, cost: p.cost ?? base.products.find((x) => x.id === p.id)?.cost ?? 0 })),
+        user: saved.user || null };
+    }
   } catch { /* fall through to seed */ }
   return seed();
 }
@@ -14,28 +27,41 @@ function loadInitial() {
 function reducer(state, action) {
   switch (action.type) {
     case 'RESET':
-      return seed();
+      return { ...seed(), user: state.user };
+
+    case 'SET_USER':
+      return { ...state, user: action.user };
 
     case 'ADD_WAREHOUSE': {
       const name = action.name;
-      const warehouses = [...state.warehouses, name];
-      const products = state.products.map((p) => ({ ...p, locations: { ...p.locations, [name]: 0 } }));
-      return { ...state, warehouses, products };
+      const warehouseRecords = [...(state.warehouseRecords || []), { id: action.id, name, code: action.code, address: action.address }];
+      return { ...state, warehouseRecords };
     }
 
     case 'REMOVE_WAREHOUSE': {
       const name = action.name;
-      const warehouses = state.warehouses.filter((w) => w !== name);
-      const products = state.products.map((p) => {
-        const locations = { ...p.locations };
-        delete locations[name];
-        return { ...p, locations };
-      });
-      return { ...state, warehouses, products };
+      return { ...state, warehouseRecords: (state.warehouseRecords || []).filter((w) => w.id !== action.id) };
+    }
+
+    case 'ADD_LOCATION': {
+      const location = action.location;
+      const locations = [...(state.locations || []), location];
+      const warehouses = state.warehouses.includes(location.name) ? state.warehouses : [...state.warehouses, location.name];
+      const products = state.products.map((p) => ({ ...p, locations: { ...p.locations, [location.name]: 0 } }));
+      return { ...state, locations, warehouses, products };
+    }
+
+    case 'REMOVE_LOCATION': {
+      const location = (state.locations || []).find((x) => x.id === action.id);
+      if (!location) return state;
+      const locations = state.locations.filter((x) => x.id !== action.id);
+      const warehouses = state.warehouses.filter((w) => w !== location.name);
+      const products = state.products.map((p) => { const stock = { ...p.locations }; delete stock[location.name]; return { ...p, locations: stock }; });
+      return { ...state, locations, warehouses, products };
     }
 
     case 'SAVE_PRODUCT': {
-      const { id, name, sku, category, unit, reorder, initial } = action;
+      const { id, name, sku, category, unit, cost = 0, reorder, initial } = action;
       let products = state.products;
       let seq = state.seq;
       let ledger = state.ledger;
@@ -44,13 +70,13 @@ function reducer(state, action) {
 
       if (!p) {
         const newP = {
-          id: `p${Date.now()}`, name, sku, category, unit, reorder,
+          id: `p${Date.now()}`, name, sku, category, unit, cost, reorder,
           locations: Object.fromEntries(state.warehouses.map((w) => [w, 0])),
         };
         products = [newP, ...products];
         p = newP;
       } else {
-        products = products.map((x) => (x.id === id ? { ...x, name, sku, category, unit, reorder } : x));
+        products = products.map((x) => (x.id === id ? { ...x, name, sku, category, unit, cost, reorder } : x));
         p = products.find((x) => x.id === id);
       }
 
@@ -58,7 +84,8 @@ function reducer(state, action) {
       const diff = initial - (p.locations[loc] || 0);
       if (diff) {
         products = products.map((x) => (x.id === p.id ? { ...x, locations: { ...x.locations, [loc]: initial } } : x));
-        const ref = `WH/ADJ/${String(seq++).padStart(4, '0')}`;
+        const whCode = state.warehouseRecords?.[0]?.code || 'WH';
+        const ref = `${whCode}/ADJ/${String(seq++).padStart(4, '0')}`;
         ledger = [{
           id: `l${Date.now()}`, type: 'Adjustment', productId: p.id, quantity: diff, location: loc,
           reference: ref, time: nowISO(), actor: 'Jamie Davis', note: id ? 'Opening stock update' : 'Initial stock',
@@ -71,61 +98,30 @@ function reducer(state, action) {
       return { ...state, products, seq, ledger, ops };
     }
 
-    case 'SAVE_OPERATION': {
+    case 'SAVE_OPERATION':
+    case 'CREATE_OPERATION': {
       const { opType, productId, quantity: n, location: loc, toLocation: to, partner, date } = action;
       const p = state.products.find((x) => x.id === productId);
       if (!p) return state;
-
       let seq = state.seq;
-      const ref = `WH/${opType === 'Receipt' ? 'IN' : opType === 'Delivery' ? 'OUT' : opType === 'Transfer' ? 'MOVE' : 'ADJ'}/${String(seq++).padStart(4, '0')}`;
-      const locations = { ...p.locations };
-      let lines;
-      const ledgerEntries = [];
-
-      if (opType === 'Receipt') {
-        locations[loc] = (locations[loc] || 0) + n;
-        lines = [{ productId: p.id, quantity: n, location: loc }];
-        ledgerEntries.push({ type: opType, quantity: n, location: loc });
-      } else if (opType === 'Delivery') {
-        locations[loc] -= n;
-        lines = [{ productId: p.id, quantity: n, location: loc }];
-        ledgerEntries.push({ type: opType, quantity: -n, location: loc });
-      } else if (opType === 'Transfer') {
-        locations[loc] -= n;
-        locations[to] = (locations[to] || 0) + n;
-        lines = [{ productId: p.id, quantity: n, from: loc, to }];
-        ledgerEntries.push(
-          { type: 'Transfer out', quantity: -n, location: loc, note: `To ${to}` },
-          { type: 'Transfer in', quantity: n, location: to, note: `From ${loc}` },
-        );
-      } else {
-        const before = locations[loc] || 0;
-        const diff = n - before;
-        locations[loc] = n;
-        lines = [{ productId: p.id, quantity: diff, location: loc }];
-        ledgerEntries.push({ type: opType, quantity: diff, location: loc, note: partner || 'Physical stock count' });
-      }
-
-      const products = state.products.map((x) => (x.id === p.id ? { ...x, locations } : x));
       const id = 'o' + Date.now();
+      const selectedLocation = (state.locations || []).find((x) => x.id === loc || x.name === loc);
+      const wh = (state.warehouseRecords || []).find((w) => w.id === selectedLocation?.warehouseId || w.name === (action.warehouseName || loc)) || state.warehouseRecords?.[0];
+      const prefix = wh?.code || 'WH';
+      const typeCode = opType === 'Receipt' ? 'IN' : opType === 'Delivery' ? 'OUT' : opType === 'Transfer' ? 'MOVE' : 'ADJ';
+      const ref = `${prefix}/${typeCode}/${String(seq++).padStart(4, '0')}`;
+      const amount = opType === 'Adjustment' ? n - (p.locations[loc] || 0) : n;
+      const lines = [{ productId: p.id, quantity: amount, ...(opType === 'Transfer' ? { from: loc, to } : { location: loc }) }];
       const resolvedPartner = opType === 'Transfer'
         ? `${loc} → ${to}`
         : partner || (opType === 'Receipt' ? 'Stock received' : opType === 'Delivery' ? 'Stock issued' : 'Physical stock count');
-      const ops = [{ id, type: opType, reference: ref, partner: resolvedPartner, date, status: 'Done', lines }, ...state.ops];
-
-      const at = nowISO();
-      const newLedger = ledgerEntries.map((l, i) => ({
-        id: `${id}-${i}`, type: l.type, productId: p.id, quantity: l.quantity, location: l.location, reference: ref,
-        time: at, actor: 'Jamie Davis',
-        note: l.note || (opType === 'Receipt' ? 'Goods received' : opType === 'Delivery' ? 'Customer shipment' : 'Internal transfer'),
-      }));
-
-      return { ...state, products, seq, ops, ledger: [...newLedger, ...state.ledger] };
+      const ops = [{ id, type: opType, reference: ref, partner: resolvedPartner, date, status: action.status || 'Draft', lines, warehouseId: wh?.id || null }, ...state.ops];
+      return { ...state, seq, ops };
     }
 
     case 'VALIDATE_OPERATION': {
       const o = state.ops.find((x) => x.id === action.id);
-      if (!o) return state;
+      if (!o || ['Done', 'Canceled'].includes(o.status)) return state;
       const productMap = Object.fromEntries(state.products.map((p) => [p.id, { ...p, locations: { ...p.locations } }]));
 
       if (o.type === 'Delivery') {
@@ -166,6 +162,11 @@ function reducer(state, action) {
 
     case 'CANCEL_OPERATION': {
       const ops = state.ops.map((x) => (x.id === action.id ? { ...x, status: 'Canceled' } : x));
+      return { ...state, ops };
+    }
+
+    case 'SET_OPERATION_STATUS': {
+      const ops = state.ops.map((x) => (x.id === action.id ? { ...x, status: action.status } : x));
       return { ...state, ops };
     }
 
